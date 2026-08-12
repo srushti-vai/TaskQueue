@@ -1,7 +1,7 @@
 import hashlib
 import json
 import uuid
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
@@ -19,7 +19,7 @@ class InvalidTransition(Exception): pass
 
 
 def now() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 def _hash(data: JobSubmit) -> str:
@@ -79,7 +79,7 @@ def lease(session: Session, request: LeaseRequest) -> Job | None:
                     attempt_count=Job.attempt_count + 1, started_at=stamp, updated_at=stamp))
         session.commit()
         if result.rowcount == 1:
-            return session.get(Job, job_id)
+            return session.get(Job, job_id, populate_existing=True)
     return None
 
 
@@ -127,4 +127,3 @@ def manual_retry(session: Session, job: Job) -> Job:
     job.state = JobState.QUEUED; job.available_at = now(); job.completed_at = None
     job.lease_owner = job.lease_token = job.lease_expires_at = None
     job.updated_at = now(); session.commit(); return job
-

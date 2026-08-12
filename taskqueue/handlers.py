@@ -5,7 +5,6 @@ import hmac
 import ipaddress
 import json
 import socket
-from pathlib import Path
 from urllib.parse import urlsplit
 
 import httpx

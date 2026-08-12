@@ -1,4 +1,4 @@
-from fastapi import Depends, FastAPI, HTTPException, Query, Response
+from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import ValidationError
 from sqlalchemy import select, text
 from sqlalchemy.orm import Session
@@ -6,8 +6,18 @@ from sqlalchemy.orm import Session
 from .database import get_session, init_db
 from .metrics import snapshot
 from .models import Job, JobState
-from .queue_service import (InvalidLease, InvalidTransition, QueueConflict, cancel,
-                            complete, fail, heartbeat, lease, manual_retry, submit)
+from .queue_service import (
+    InvalidLease,
+    InvalidTransition,
+    QueueConflict,
+    cancel,
+    complete,
+    fail,
+    heartbeat,
+    lease,
+    manual_retry,
+    submit,
+)
 from .schemas import CompleteRequest, FailRequest, JobSubmit, JobView, LeaseProof, LeaseRequest
 
 app = FastAPI(title="TaskQueue", version="0.1.0")

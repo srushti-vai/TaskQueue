@@ -5,7 +5,6 @@ from sqlalchemy.orm import sessionmaker
 
 from taskqueue.database import init_db, make_engine
 from taskqueue.handlers import webhook_signature
-from taskqueue.models import JobState
 from taskqueue.queue_service import lease, submit
 from taskqueue.schemas import JobSubmit, LeaseRequest
 
@@ -59,7 +58,7 @@ def test_retry_failure_dead_letter_and_manual_retry(client):
 
 
 def test_atomic_concurrent_leasing(tmp_path):
-    engine = make_engine(f"sqlite:///{tmp_path / 'race.db'}"); init_db(engine)
+    engine = make_engine(f"sqlite:///{(tmp_path / 'race.db').as_posix()}"); init_db(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
     with factory() as s: submit(s, JobSubmit(job_type="simulate_failure", payload=payload()))
     def claim(worker):
@@ -85,4 +84,3 @@ def test_expiry_and_stale_fencing(client):
 
 def test_stable_webhook_signature():
     assert webhook_signature({"b": 2, "a": 1}, "delivery") == webhook_signature({"a": 1, "b": 2}, "delivery")
-

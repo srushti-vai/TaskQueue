@@ -15,12 +15,14 @@ from taskqueue.schemas import JobSubmit, LeaseRequest
 
 def run(count=500, workers=1):
     with tempfile.TemporaryDirectory() as directory:
-        engine = make_engine(f"sqlite:///{Path(directory) / 'bench.db'}"); init_db(engine)
+        database = (Path(directory) / "bench.db").as_posix()
+        engine = make_engine(f"sqlite:///{database}"); init_db(engine)
         factory = sessionmaker(engine, expire_on_commit=False); starts = {}
         before = time.perf_counter()
         with factory() as db:
             for i in range(count):
                 job = submit(db, JobSubmit(job_type="simulate_failure", payload={"fail_attempts": 0, "duration_seconds": 0}, idempotency_key=f"b-{i}")); starts[job.id] = time.perf_counter()
+        time.sleep(.01)
         latencies = []
         def work(name):
             while True:
@@ -30,10 +32,12 @@ def run(count=500, workers=1):
                     complete(db, job, name, job.lease_token, {"ok": True}); latencies.append(time.perf_counter() - starts[job.id])
         with ThreadPoolExecutor(max_workers=workers) as pool: list(pool.map(work, [f"w{i}" for i in range(workers)]))
         elapsed = time.perf_counter() - before; ordered = sorted(latencies)
-        return {"workers": workers, "total_completed": len(latencies), "elapsed_seconds": elapsed,
+        result = {"workers": workers, "total_completed": len(latencies), "elapsed_seconds": elapsed,
             "jobs_per_second": len(latencies) / elapsed, "p50_latency_seconds": statistics.median(ordered),
             "p95_latency_seconds": ordered[int(.95 * (len(ordered)-1))], "retry_count": 0,
             "duplicate_active_lease_violations": 0}
+        engine.dispose()
+        return result
 
 
 def main():
@@ -47,4 +51,3 @@ def main():
 
 
 if __name__ == "__main__": main()
-
