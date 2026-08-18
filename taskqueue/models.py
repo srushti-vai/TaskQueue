@@ -31,6 +31,8 @@ class Job(Base):
     payload: Mapped[dict] = mapped_column(JSON)
     state: Mapped[JobState] = mapped_column(Enum(JobState), default=JobState.QUEUED, index=True)
     attempt_count: Mapped[int] = mapped_column(Integer, default=0)
+    retry_count: Mapped[int] = mapped_column(Integer, default=0)
+    expired_recovery_count: Mapped[int] = mapped_column(Integer, default=0)
     max_attempts: Mapped[int] = mapped_column(Integer, default=3)
     available_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     lease_owner: Mapped[str | None] = mapped_column(String(128), nullable=True)
@@ -44,4 +46,3 @@ class Job(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     result: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
-

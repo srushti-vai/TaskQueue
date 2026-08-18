@@ -58,9 +58,12 @@ def recover(session: Session) -> int:
     stamp = now()
     expired = session.execute(update(Job).where(Job.state == JobState.LEASED,
         Job.lease_expires_at < stamp).values(state=JobState.QUEUED, lease_owner=None,
-        lease_token=None, lease_expires_at=None, available_at=stamp, updated_at=stamp)).rowcount
+        lease_token=None, lease_expires_at=None, available_at=stamp, updated_at=stamp,
+        expired_recovery_count=Job.expired_recovery_count + 1)
+        .execution_options(synchronize_session=False)).rowcount
     session.execute(update(Job).where(Job.state == JobState.RETRY_WAIT, Job.available_at <= stamp)
-        .values(state=JobState.QUEUED, updated_at=stamp))
+        .values(state=JobState.QUEUED, updated_at=stamp)
+        .execution_options(synchronize_session=False))
     session.commit()
     return expired
 
@@ -90,29 +93,67 @@ def prove(job: Job | None, worker: str, token: str) -> Job:
 
 
 def heartbeat(session: Session, job: Job, worker: str, token: str, seconds: float = 10) -> Job:
-    prove(job, worker, token)
-    job.lease_expires_at = now() + timedelta(seconds=seconds)
-    job.updated_at = now(); session.commit(); return job
+    stamp = now()
+    changed = session.execute(update(Job).where(
+        Job.id == job.id, Job.state == JobState.LEASED,
+        Job.lease_owner == worker, Job.lease_token == token,
+        Job.lease_expires_at >= stamp,
+    ).values(lease_expires_at=stamp + timedelta(seconds=seconds), updated_at=stamp)
+        .execution_options(synchronize_session=False)).rowcount
+    session.commit()
+    if changed != 1:
+        raise InvalidLease("stale, expired, or invalid lease")
+    return session.get(Job, job.id, populate_existing=True)
 
 
 def complete(session: Session, job: Job, worker: str, token: str, result: dict) -> Job:
-    prove(job, worker, token); stamp = now()
-    job.state = JobState.SUCCEEDED; job.result = result; job.completed_at = stamp
-    job.updated_at = stamp; job.lease_owner = job.lease_token = job.lease_expires_at = None
-    session.commit(); return job
+    stamp = now()
+    changed = session.execute(update(Job).where(
+        Job.id == job.id, Job.state == JobState.LEASED,
+        Job.lease_owner == worker, Job.lease_token == token,
+        Job.lease_expires_at >= stamp,
+    ).values(state=JobState.SUCCEEDED, result=result, completed_at=stamp,
+        updated_at=stamp, lease_owner=None, lease_token=None,
+        lease_expires_at=None).execution_options(synchronize_session=False)).rowcount
+    session.commit()
+    if changed != 1:
+        raise InvalidLease("stale, expired, or invalid lease")
+    return session.get(Job, job.id, populate_existing=True)
 
 
 def fail(session: Session, job: Job, worker: str, token: str, retryable: bool, error: str) -> Job:
-    prove(job, worker, token); stamp = now(); job.last_error = error[:1000]
+    stamp = now()
+    prove(job, worker, token)
     if retryable and job.attempt_count < job.max_attempts:
-        job.state = JobState.RETRY_WAIT
-        job.available_at = stamp + timedelta(seconds=retry_delay(job.attempt_count,
+        state = JobState.RETRY_WAIT
+        available_at = stamp + timedelta(seconds=retry_delay(job.attempt_count,
             settings.retry_base_seconds, settings.retry_max_seconds))
+        completed_at = None
     else:
-        job.state = JobState.DEAD_LETTER if retryable else JobState.FAILED
-        job.completed_at = stamp
-    job.updated_at = stamp; job.lease_owner = job.lease_token = job.lease_expires_at = None
-    session.commit(); return job
+        state = JobState.DEAD_LETTER if retryable else JobState.FAILED
+        available_at = job.available_at
+        completed_at = stamp
+    values = {
+        "state": state,
+        "available_at": available_at,
+        "completed_at": completed_at,
+        "last_error": error[:1000],
+        "updated_at": stamp,
+        "lease_owner": None,
+        "lease_token": None,
+        "lease_expires_at": None,
+    }
+    if retryable:
+        values["retry_count"] = Job.retry_count + 1
+    changed = session.execute(update(Job).where(
+        Job.id == job.id, Job.state == JobState.LEASED,
+        Job.lease_owner == worker, Job.lease_token == token,
+        Job.lease_expires_at >= stamp,
+    ).values(**values).execution_options(synchronize_session=False)).rowcount
+    session.commit()
+    if changed != 1:
+        raise InvalidLease("stale, expired, or invalid lease")
+    return session.get(Job, job.id, populate_existing=True)
 
 
 def cancel(session: Session, job: Job) -> Job:
@@ -125,5 +166,6 @@ def manual_retry(session: Session, job: Job) -> Job:
     if job.state not in {JobState.DEAD_LETTER, JobState.FAILED}:
         raise InvalidTransition("only failed or dead-letter jobs may be retried")
     job.state = JobState.QUEUED; job.available_at = now(); job.completed_at = None
+    job.attempt_count = 0; job.last_error = None; job.result = None
     job.lease_owner = job.lease_token = job.lease_expires_at = None
     job.updated_at = now(); session.commit(); return job

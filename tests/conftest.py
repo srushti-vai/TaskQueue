@@ -11,7 +11,9 @@ def session(tmp_path):
     engine = make_engine(f"sqlite:///{(tmp_path / 'test.db').as_posix()}")
     init_db(engine)
     factory = sessionmaker(engine, expire_on_commit=False)
-    with factory() as value: yield value
+    with factory() as value:
+        yield value
+    engine.dispose()
 
 
 @pytest.fixture()

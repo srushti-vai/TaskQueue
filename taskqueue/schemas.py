@@ -43,6 +43,8 @@ class JobView(BaseModel):
     payload: dict[str, Any]
     state: JobState
     attempt_count: int
+    retry_count: int
+    expired_recovery_count: int
     max_attempts: int
     available_at: datetime
     lease_owner: str | None
@@ -69,11 +71,14 @@ class LeaseProof(BaseModel):
     lease_token: str
 
 
+class HeartbeatRequest(LeaseProof):
+    lease_seconds: float = Field(default=10, ge=0.05, le=3600)
+
+
 class CompleteRequest(LeaseProof):
-    result: dict[str, Any] = {}
+    result: dict[str, Any] = Field(default_factory=dict)
 
 
 class FailRequest(LeaseProof):
     retryable: bool
     error: str = Field(max_length=1000)
-

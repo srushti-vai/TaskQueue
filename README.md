@@ -49,7 +49,8 @@ In other terminals:
 ```bash
 taskqueue worker --name worker-1
 taskqueue worker --name worker-2
-taskqueue submit generate_report --payload examples/report.json
+taskqueue submit generate_report examples/report.json
+taskqueue submit simulate_failure examples/failure.json
 taskqueue status JOB_ID
 taskqueue list --state queued
 taskqueue cancel JOB_ID
@@ -62,13 +63,13 @@ The API provides submission, inspection, filtering, cancellation, manual retry, 
 
 Leasing uses a conditional SQLite update inside a short transaction. Concurrent workers may select the same candidate, but only one can change it from `queued` to `leased`; the others observe a zero-row update and move on. Each successful claim creates a random lease token.
 
-Every heartbeat and result supplies the worker ID and current token. An expired job is returned to `queued`, and reassignment creates a new token. A late result from the old worker is therefore rejected with HTTP 409. Heartbeats extend a live lease. Recovery happens deterministically before each lease operation, so no scheduler is required.
+Every heartbeat and result supplies the worker ID and current token. Conditional database updates validate the job state, worker, token, and unexpired lease in the same statement. An expired job is returned to `queued`, and reassignment creates a new token. A late result from the old worker is therefore rejected with HTTP 409. Heartbeats extend a live lease using the worker's configured lease duration. Recovery happens deterministically before each lease operation, so no scheduler is required.
 
 Delivery is **at least once**. If a handler causes a side effect and the worker crashes before recording success, TaskQueue can run it again. Handler side effects should therefore be idempotent. TaskQueue does not claim exactly-once execution.
 
 Submission idempotency keys are unique. A retry with the same normalized job type and payload returns the original job; conflicting content receives HTTP 409. Retryable failures use capped exponential backoff and become dead letters after exhausting attempts. Permanent failures are not retried. Failed and dead-lettered jobs can be manually requeued.
 
-`deliver_webhook` signs a canonical payload with HMAC-SHA256 and a stable delivery ID. It rejects unsafe schemes, credentials, and private destinations (loopback is explicitly allowed for local development). Timeouts, network errors, 429, and 5xx retry; most 4xx responses are permanent. Public error messages are sanitized and response previews are bounded.
+`deliver_webhook` signs a canonical payload with HMAC-SHA256 and a stable delivery ID. It rejects unsafe schemes, credentials, and private destinations (loopback is explicitly allowed for local development). Timeouts, network errors, 429, and 5xx retry; most 4xx responses are permanent. Public error messages are sanitized, and response streaming stops after the bounded preview is collected.
 
 ## Verification and demonstrations
 
@@ -81,13 +82,24 @@ python scripts/benchmark.py
 
 The demo shows Worker A losing its lease, Worker B reclaiming and completing it, stale Worker A being fenced out, and an idempotent resubmission returning the original ID.
 
-The benchmark submits and completes 500 lightweight jobs for 1, 2, and 4 worker threads. It records only executed local measurements in `reports/benchmark.json` and `reports/benchmark.md`; these are local SQLite figures, not production-scale claims.
+The test suite covers submission validation, concurrent idempotency, atomic leasing and completion, heartbeats, lease expiry, stale-token fencing, retry backoff, dead-letter recovery, terminal states, API restart durability, registered handlers, webhook classifications and HMAC signatures, competing HTTP workers, heartbeat loss, graceful shutdown, filters, and metrics.
+
+The benchmark submits and completes 500 lightweight jobs for 1, 2, and 4 service-layer worker threads. It records only executed local measurements in `reports/benchmark.json` and `reports/benchmark.md`; these are local SQLite coordination figures, not HTTP-worker or production-scale claims.
+
+Latest measured run on the local development machine:
+
+| Workers | Completed | Jobs/s | p50 latency | p95 latency | Active-lease violations |
+|---:|---:|---:|---:|---:|---:|
+| 1 | 500 | 39.83 | 6.3184 s | 9.9052 s | 0 |
+| 2 | 500 | 42.38 | 5.9599 s | 9.2487 s | 0 |
+| 4 | 500 | 41.35 | 6.1265 s | 9.4405 s | 0 |
+
+The small and non-linear scaling is consistent with SQLite's serialized write path; TaskQueue records the observation rather than implying that more local writers must be faster.
 
 ## Limitations and production path
 
 - SQLite limits write concurrency, and the API server is a single coordination point.
 - Execution is at least once; handler side effects may require independent idempotency protection.
 - The local MVP has no authentication and must not run untrusted code.
-- Metrics are process-local database snapshots rather than a complete event ledger.
+- Metrics are durable database-derived snapshots, but not a complete event ledger or external monitoring system.
 - Production would likely use PostgreSQL or a distributed broker, authentication, stronger SSRF controls, durable metrics and tracing, multiple API instances, migrations, and secret management.
-
