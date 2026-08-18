@@ -2,30 +2,30 @@
   {
     "workers": 1,
     "total_completed": 500,
-    "elapsed_seconds": 10.377458900213242,
-    "jobs_per_second": 48.181351986826535,
-    "p50_latency_seconds": 5.280522899702191,
-    "p95_latency_seconds": 7.948942299932241,
+    "elapsed_seconds": 12.55454820021987,
+    "jobs_per_second": 39.82620417923469,
+    "p50_latency_seconds": 6.318355799885467,
+    "p95_latency_seconds": 9.905229799915105,
     "retry_count": 0,
     "duplicate_active_lease_violations": 0
   },
   {
     "workers": 2,
     "total_completed": 500,
-    "elapsed_seconds": 11.270113800186664,
-    "jobs_per_second": 44.36512433367963,
-    "p50_latency_seconds": 5.836754750227556,
-    "p95_latency_seconds": 8.74171350011602,
+    "elapsed_seconds": 11.797998699825257,
+    "jobs_per_second": 42.38006908810777,
+    "p50_latency_seconds": 5.959945650072768,
+    "p95_latency_seconds": 9.248738399706781,
     "retry_count": 0,
     "duplicate_active_lease_violations": 0
   },
   {
     "workers": 4,
     "total_completed": 500,
-    "elapsed_seconds": 11.279981500003487,
-    "jobs_per_second": 44.326313833036465,
-    "p50_latency_seconds": 5.744754399871454,
-    "p95_latency_seconds": 8.817325599957258,
+    "elapsed_seconds": 12.09098199987784,
+    "jobs_per_second": 41.353134096556566,
+    "p50_latency_seconds": 6.126468250062317,
+    "p95_latency_seconds": 9.440528099890798,
     "retry_count": 0,
     "duplicate_active_lease_violations": 0
   }

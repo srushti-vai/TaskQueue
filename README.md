@@ -90,11 +90,11 @@ Latest measured run on the local development machine:
 
 | Workers | Completed | Jobs/s | p50 latency | p95 latency | Active-lease violations |
 |---:|---:|---:|---:|---:|---:|
-| 1 | 500 | 48.18 | 5.2805 s | 7.9489 s | 0 |
-| 2 | 500 | 44.37 | 5.8368 s | 8.7417 s | 0 |
-| 4 | 500 | 44.33 | 5.7448 s | 8.8173 s | 0 |
+| 1 | 500 | 39.83 | 6.3184 s | 9.9052 s | 0 |
+| 2 | 500 | 42.38 | 5.9599 s | 9.2487 s | 0 |
+| 4 | 500 | 41.35 | 6.1265 s | 9.4405 s | 0 |
 
-The lower throughput with additional threads is an expected possible result for SQLite's serialized write path; TaskQueue records the observation rather than implying that more local writers must be faster.
+The small and non-linear scaling is consistent with SQLite's serialized write path; TaskQueue records the observation rather than implying that more local writers must be faster.
 
 ## Limitations and production path
 
