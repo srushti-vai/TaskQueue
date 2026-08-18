@@ -1,3 +1,5 @@
+from contextlib import asynccontextmanager
+
 from fastapi import Depends, FastAPI, HTTPException, Query
 from pydantic import ValidationError
 from sqlalchemy import select, text
@@ -18,13 +20,28 @@ from .queue_service import (
     manual_retry,
     submit,
 )
-from .schemas import CompleteRequest, FailRequest, JobSubmit, JobView, LeaseProof, LeaseRequest
+from .schemas import (
+    CompleteRequest,
+    FailRequest,
+    HeartbeatRequest,
+    JobSubmit,
+    JobView,
+    LeaseRequest,
+)
 
-app = FastAPI(title="TaskQueue", version="0.1.0")
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    init_db()
+    yield
 
 
-@app.on_event("startup")
-def startup(): init_db()
+app = FastAPI(title="TaskQueue", version="0.1.0", lifespan=lifespan)
+
+
+@app.get("/")
+def root():
+    return {"name": "TaskQueue", "docs": "/docs", "health": "/health", "metrics": "/metrics"}
 
 
 def require_job(job_id: str, session: Session) -> Job:
@@ -59,8 +76,10 @@ def lease_job(data: LeaseRequest, session: Session = Depends(get_session)): retu
 
 
 @app.post("/jobs/{job_id}/heartbeat", response_model=JobView)
-def beat(job_id: str, data: LeaseProof, session: Session = Depends(get_session)):
-    try: return heartbeat(session, require_job(job_id, session), data.worker_id, data.lease_token)
+def beat(job_id: str, data: HeartbeatRequest, session: Session = Depends(get_session)):
+    try:
+        return heartbeat(session, require_job(job_id, session), data.worker_id,
+                         data.lease_token, data.lease_seconds)
     except InvalidLease as exc: raise HTTPException(409, str(exc)) from exc
 
 
@@ -95,4 +114,3 @@ def health(session: Session = Depends(get_session)):
 
 @app.get("/metrics")
 def metrics(session: Session = Depends(get_session)): return snapshot(session)
-

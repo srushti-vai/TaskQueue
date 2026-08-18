@@ -6,4 +6,6 @@ __pycache__/
 .deps/
 .tools/
 *.db
+*.db-shm
+*.db-wal
 reports/generated/

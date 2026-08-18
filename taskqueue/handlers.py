@@ -61,16 +61,24 @@ async def deliver_webhook(payload: dict, _attempt: int) -> dict:
     headers = {"X-TaskQueue-Delivery": delivery_id,
                "X-TaskQueue-Signature": webhook_signature(data.body, delivery_id)}
     try:
-        async with httpx.AsyncClient(timeout=10) as client:
-            response = await client.post(url, json=data.body, headers=headers)
+        async with (
+            httpx.AsyncClient(timeout=10) as client,
+            client.stream("POST", url, json=data.body, headers=headers) as response,
+        ):
+            status_code = response.status_code
+            preview = bytearray()
+            async for chunk in response.aiter_bytes():
+                preview.extend(chunk[:max(0, 1024 - len(preview))])
+                if len(preview) >= 1024:
+                    break
     except (httpx.TimeoutException, httpx.NetworkError) as exc:
         raise RetryableJobError("webhook delivery failed") from exc
-    if response.status_code == 429 or response.status_code >= 500:
-        raise RetryableJobError(f"webhook returned HTTP {response.status_code}")
-    if 400 <= response.status_code < 500:
-        raise PermanentJobError(f"webhook returned HTTP {response.status_code}")
-    return {"delivery_id": delivery_id, "status_code": response.status_code,
-            "response_preview": response.text[:1024]}
+    if status_code == 429 or status_code >= 500:
+        raise RetryableJobError(f"webhook returned HTTP {status_code}")
+    if 400 <= status_code < 500:
+        raise PermanentJobError(f"webhook returned HTTP {status_code}")
+    return {"delivery_id": delivery_id, "status_code": status_code,
+            "response_preview": preview.decode(errors="replace")}
 
 
 async def simulate_failure(payload: dict, attempt: int) -> dict:
@@ -83,4 +91,3 @@ async def simulate_failure(payload: dict, attempt: int) -> dict:
 
 HANDLERS = {"generate_report": generate_report, "deliver_webhook": deliver_webhook,
             "simulate_failure": simulate_failure}
-
