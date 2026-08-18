@@ -23,11 +23,15 @@ def server(host: str = "127.0.0.1", port: int = 8000): uvicorn.run("taskqueue.ap
 @app.command()
 def worker(name: str = "worker-1", server_url: str = "http://127.0.0.1:8000"):
     instance = Worker(server_url, name)
-    previous = signal.signal(signal.SIGINT, lambda *_: instance.stop())
+    handled = [signal.SIGINT]
+    if hasattr(signal, "SIGTERM"):
+        handled.append(signal.SIGTERM)
+    previous = {item: signal.signal(item, lambda *_: instance.stop()) for item in handled}
     try:
         asyncio.run(instance.run())
     finally:
-        signal.signal(signal.SIGINT, previous)
+        for item, handler in previous.items():
+            signal.signal(item, handler)
 
 
 @app.command()

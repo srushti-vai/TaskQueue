@@ -46,17 +46,23 @@ class Worker:
             HANDLERS[job["job_type"]](job["payload"], job["attempt_count"])
         )
         heartbeat_task = asyncio.create_task(self.heartbeat(client, job))
-        done, _ = await asyncio.wait(
-            {handler_task, heartbeat_task}, return_when=asyncio.FIRST_COMPLETED
-        )
-        if heartbeat_task in done:
-            handler_task.cancel()
-            await asyncio.gather(handler_task, return_exceptions=True)
-            await heartbeat_task
-            raise LeaseLostError("heartbeat stopped unexpectedly")
-        heartbeat_task.cancel()
-        await asyncio.gather(heartbeat_task, return_exceptions=True)
-        return await handler_task
+        try:
+            done, _ = await asyncio.wait(
+                {handler_task, heartbeat_task}, return_when=asyncio.FIRST_COMPLETED
+            )
+            if heartbeat_task in done:
+                handler_task.cancel()
+                await asyncio.gather(handler_task, return_exceptions=True)
+                await heartbeat_task
+                raise LeaseLostError("heartbeat stopped unexpectedly")
+            heartbeat_task.cancel()
+            await asyncio.gather(heartbeat_task, return_exceptions=True)
+            return await handler_task
+        finally:
+            for task in (handler_task, heartbeat_task):
+                if not task.done():
+                    task.cancel()
+            await asyncio.gather(handler_task, heartbeat_task, return_exceptions=True)
 
     async def execute(self, client: httpx.AsyncClient, job: dict) -> None:
         token_prefix = job["lease_token"][:8]

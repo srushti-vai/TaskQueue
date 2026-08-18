@@ -5,6 +5,7 @@ __pycache__/
 .venv/
 .deps/
 .tools/
+work/
 *.db
 *.db-shm
 *.db-wal

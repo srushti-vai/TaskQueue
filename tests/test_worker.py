@@ -97,3 +97,54 @@ async def test_rejected_heartbeat_cancels_handler(monkeypatch):
         with pytest.raises(LeaseLostError):
             await Worker("http://test", "worker", lease_seconds=0.06).execute(client, job)
     assert cancelled.is_set()
+
+
+@pytest.mark.asyncio
+async def test_crashed_worker_is_recovered_and_fenced_end_to_end(tmp_path, monkeypatch):
+    engine = make_engine(f"sqlite:///{(tmp_path / 'crash.db').as_posix()}")
+    init_db(engine)
+    factory = sessionmaker(engine, expire_on_commit=False)
+
+    def sessions():
+        with factory() as db:
+            yield db
+
+    app.dependency_overrides[get_session] = sessions
+    transport = httpx.ASGITransport(app=app)
+    started = asyncio.Event()
+
+    async def long_handler(_payload, _attempt):
+        started.set()
+        await asyncio.sleep(10)
+
+    async def recovered_handler(_payload, attempt):
+        return {"recovered_on_attempt": attempt}
+
+    monkeypatch.setitem(HANDLERS, "simulate_failure", long_handler)
+    try:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
+            created = (await client.post("/jobs", json={"job_type": "simulate_failure",
+                "payload": {"fail_attempts": 0, "duration_seconds": 1}})).json()
+            worker_a = Worker("http://test", "worker-A", lease_seconds=0.09)
+            execution_a = asyncio.create_task(worker_a.lease_once(client))
+            await started.wait()
+            leased_a = (await client.get(f"/jobs/{created['id']}")).json()
+            execution_a.cancel()
+            await asyncio.gather(execution_a, return_exceptions=True)
+            await asyncio.sleep(0.11)
+
+            monkeypatch.setitem(HANDLERS, "simulate_failure", recovered_handler)
+            worker_b = Worker("http://test", "worker-B", lease_seconds=1)
+            assert await worker_b.lease_once(client) is True
+            stale = await client.post(f"/jobs/{created['id']}/complete", json={
+                "worker_id": "worker-A", "lease_token": leased_a["lease_token"],
+                "result": {"late": True}})
+            finished = (await client.get(f"/jobs/{created['id']}")).json()
+        assert stale.status_code == 409
+        assert finished["state"] == "succeeded"
+        assert finished["attempt_count"] == 2
+        assert finished["expired_recovery_count"] == 1
+        assert finished["result"] == {"recovered_on_attempt": 2}
+    finally:
+        app.dependency_overrides.clear()
+        engine.dispose()
